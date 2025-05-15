@@ -1,2 +1,2 @@
 # little_projects
-A bin for all my little codes. 
+working on v.2 for TK33_34... please DONT use the file: TK33_34_v.2.py. Still needs work.   
