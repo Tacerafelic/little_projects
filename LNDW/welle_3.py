@@ -25,10 +25,9 @@ step = 5  # Pixel-Schritt für Rendering
 
 # Schallgeschwindigkeit & Frequenzmapping
 def wavelength_to_freq(wavelength_px):
-    if wavelength_px < 1:
-        wavelength_px = 1
-    freq = 2000 / wavelength_px
-    return max(200, min(1000, freq))
+    freq = 22000 / (wavelength_px + 10)  # 10 verhindert Division durch 0
+    return max(100, min(6000, freq))    # mehr hörbarer Bereich
+
 
 # Wellenquelle Klasse mit Ausbreitung
 class WaveSource:
@@ -83,6 +82,18 @@ def generate_tone(freqs, amps, duration=0.1):
     sound = pygame.sndarray.make_sound(stereo_signal)
     return sound
 
+def draw_glow(surface, pos, intensity, max_radius=60, color=(50, 150, 255)):
+    """Simulierter Glow-Effekt um eine Position mit abnehmender Helligkeit"""
+    x, y = pos
+    for radius in range(max_radius, 0, -5):
+        alpha = int(intensity * 255 * (radius / max_radius)**2 * 0.4)
+        if alpha <= 0:
+            continue
+        glow_surf = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+        pygame.draw.circle(glow_surf, color + (alpha,), (radius, radius), radius)
+        surface.blit(glow_surf, (x - radius, y - radius), special_flags=pygame.BLEND_ADD)
+
+
 while running:
     current_time = time.time()
 
@@ -95,7 +106,7 @@ while running:
         elif event.type == pygame.MOUSEBUTTONUP:
             if mouse_down_time is not None:
                 press_duration = current_time - mouse_down_time
-                wavelength = max(5, 150 - press_duration * 100)
+                wavelength = max(20, 250 / (1 + press_duration * 3))
                 wave_sources.append(WaveSource(click_pos, wavelength, current_time))
                 mouse_down_time = None
 
@@ -115,29 +126,36 @@ while running:
     if max_amp == 0:
         max_amp = 1
 
+    refr_strength = 5  # wie stark der Versatz sein darf (in Pixeln)
+
     for y in range(surface_array.shape[0]):
         for x in range(surface_array.shape[1]):
             val = surface_array[y, x] / max_amp
-            if val > 0:
-                # Position im Originalbild
-                px = x * step
-                py = y * step
-                if 0 <= px < width and 0 <= py < height:
-                    # Farbe aus dem Hintergrund
-                    bg_color = background.get_at((px, py))
-                    r, g, b = bg_color.r, bg_color.g, bg_color.b
+            px = x * step
+            py = y * step
 
-                    # Helligkeit je nach Wellenstärke anpassen
-                    brightness_factor = 1 + val * 0.5  # z. B. bis zu 50 % heller
-                    r = min(255, int(r * brightness_factor))
-                    g = min(255, int(g * brightness_factor))
-                    b = min(255, int(b * brightness_factor))
+            # Versatz berechnen
+            dx = int(refr_strength * val)
+            dy = int(refr_strength * val)
 
-                    # Nur blau betonen, andere Farben optional abschwächen:
-                    r = int(r * 0.5)
-                    g = int(g * 0.5)
+            # Neue Position im Bild
+            src_x = min(width - 1, max(0, px + dx))
+            src_y = min(height - 1, max(0, py + dy))
 
-                    pygame.draw.rect(screen, (r, g, b), (px, py, step, step))
+            # Hintergrundfarbe von verschobener Position holen
+            color = background.get_at((src_x, src_y))
+
+            # Zeichnen: nur bei nennenswerter Amplitude
+            if abs(val) > 0.02:
+                # Zeichne refraktierten Hintergrund
+                pygame.draw.rect(screen, color, (px, py, step, step))
+
+                # Halbtransparente blaue Überlagerung für Sichtbarkeit der Welle
+                alpha_surface = pygame.Surface((step, step), pygame.SRCALPHA)
+                alpha_intensity = int(min(255, 80 + abs(val) * 100))  # Transparenz an Amplitude anpassen
+                alpha_surface.fill((10, 100, 255, alpha_intensity))   # bläuliche Farbe mit Alpha
+                screen.blit(alpha_surface, (px, py))
+
 
     wave_sources = [s for s in wave_sources if current_time - s.start_time <= s.lifetime + s.wave_duration]
 
@@ -160,6 +178,7 @@ while running:
     elif not wave_sources and current_sound:
         current_sound.stop()
         current_sound = None
+        
 
     pygame.display.flip()
     clock.tick(60)
